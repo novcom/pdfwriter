@@ -1,3 +1,5 @@
+Original source: https://github.com/galkahana/PDF-Writer
+
 Welcome to PDF-Writer.   
 A Fast and Free C++ Library for Creating, Parsing an Manipulating PDF Files and Streams.   
 Documentation is available [here](https://github.com/galkahana/PDF-Writer/wiki).   
