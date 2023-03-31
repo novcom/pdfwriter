@@ -100,7 +100,7 @@ public:
 
 	// Array writing, currently just writing begin and end brackets
 	void StartArray();
-	void EndArray(ETokenSeparator inSeparate = eTokenSepratorNone);
+	void EndArray(ETokenSeparator inSeparate = eTokenSeparatorNone);
 
 	// Indirect objects writing
 	// override that allocate a new object ID and returns it
@@ -114,6 +114,7 @@ public:
 
 	// Sets whether streams created by the objects context will be compressed (with flate) or not
 	void SetCompressStreams(bool inCompressStreams);
+	bool IsCompressingStreams();
 
 	// Create PDF stream and write it's header. note that stream are written with indirect object for Length, to allow one pass writing.
 	// inStreamDictionary can be passed in order to include stream generic information in an already written stream dictionary

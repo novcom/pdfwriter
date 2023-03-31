@@ -16,7 +16,7 @@
    See the License for the specific language governing permissions and
    limitations under the License.
 
-   
+
 */
 #pragma once
 
@@ -58,6 +58,7 @@ public:
 
 	// use this for retrieving image information for JPEG (useful for deciphering JPG dimensions tags)
 	BoolAndJPEGImageInformation RetrieveImageInformation(const std::string& inJPGFilePath);
+	BoolAndJPEGImageInformation RetrieveImageInformation(IByteReaderWithPosition* inJPGStream);
 
 	// DocumentContext::CreateImageXObjectFromJPGFile are equivelent
 	PDFImageXObject* CreateImageXObjectFromJPGFile(const std::string& inJPGFilePath);

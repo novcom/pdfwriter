@@ -21,6 +21,7 @@
 #include "PDFParserTokenizer.h"
 #include "IByteReader.h"
 #include "OutputStringBufferStream.h"
+#include "Trace.h"
 
 using namespace PDFHummus;
 using namespace IOBasicTypes;
@@ -67,7 +68,7 @@ BoolAndString PDFParserTokenizer::GetNextToken()
 	Byte buffer;
 	OutputStringBufferStream tokenBuffer;
 	
-	if(!mStream || (!mStream->NotEnded() && !mHasTokenBuffer))
+	if(!CanGetNextByte())
 	{
 		result.first = false;
 		return result;
@@ -76,7 +77,7 @@ BoolAndString PDFParserTokenizer::GetNextToken()
 	do
 	{
 		SkipTillToken();
-		if(!mStream->NotEnded())
+		if(!CanGetNextByte())
 		{
 			result.first = false;
 			break;
@@ -103,11 +104,11 @@ BoolAndString PDFParserTokenizer::GetNextToken()
 			case '%':
 			{
 				// for a comment, the token goes on till the end of line marker [not including]
-				while(mStream->NotEnded())
+				while(CanGetNextByte())
 				{
 					if(GetNextByteForToken(buffer) != PDFHummus::eSuccess)
 					{	
-						result.first = !mStream->NotEnded();
+						result.first = !CanGetNextByte();
 						break;
 					}
 					if(0xD == buffer|| 0xA == buffer)
@@ -123,11 +124,11 @@ BoolAndString PDFParserTokenizer::GetNextToken()
 				// for a literal string, the token goes on until the balanced-closing right paranthesis
 				int balanceLevel = 1;
 				bool backSlashEncountered = false;
-				while(balanceLevel > 0 && mStream->NotEnded())
+				while(balanceLevel > 0 && CanGetNextByte())
 				{
 					if(GetNextByteForToken(buffer) != PDFHummus::eSuccess)
 					{	
-						result.first = !mStream->NotEnded();
+						result.first = !CanGetNextByte();
 						break;
 					}
 			
@@ -138,11 +139,11 @@ BoolAndString PDFParserTokenizer::GetNextToken()
 						{
 							// ignore backslash and newline. might also need to read extra
 							// for cr-ln
-							if(0xD == buffer && mStream->NotEnded())
+							if(0xD == buffer && CanGetNextByte())
 							{
 								if(GetNextByteForToken(buffer) != PDFHummus::eSuccess)
 								{
-									result.first = !mStream->NotEnded();
+									result.first = !CanGetNextByte();
 									break;
 								}
 								if(buffer != 0xA)
@@ -179,7 +180,7 @@ BoolAndString PDFParserTokenizer::GetNextToken()
 				// k. this might be a dictionary start marker or a hax string start. depending on whether it has a < following it or not
 
 				// Hex string, read till end of hex string marker
-				if(!mStream->NotEnded())
+				if(!CanGetNextByte())
 				{
 					result.second = tokenBuffer.ToString();
 					break;
@@ -187,7 +188,7 @@ BoolAndString PDFParserTokenizer::GetNextToken()
 
 				if(GetNextByteForToken(buffer) != PDFHummus::eSuccess)
 				{	
-						result.first = !mStream->NotEnded();
+						result.first = !CanGetNextByte();
 						break;
 				}
 
@@ -204,16 +205,28 @@ BoolAndString PDFParserTokenizer::GetNextToken()
 
 					tokenBuffer.Write(&buffer,1);
 
-					while(mStream->NotEnded() && buffer != '>')
+					while(CanGetNextByte() && buffer != '>')
 					{
 						if(GetNextByteForToken(buffer) != PDFHummus::eSuccess)
 						{	
-							result.first = !mStream->NotEnded();
+							result.first = !CanGetNextByte();
 							break;
 						}
 
-						if(!IsPDFWhiteSpace(buffer))
-							tokenBuffer.Write(&buffer,1);
+						if(IsPDFWhiteSpace(buffer))
+							continue;
+
+						// verify that getting a hex char or ending char, so that we are sure there's no orcish mischief
+						if(!(buffer>='0' && buffer<='9') &&
+						   !(buffer>='A' && buffer<='F') &&
+						   !(buffer>='a' && buffer<='f') &&
+						   buffer != '>') {
+							TRACE_LOG1("PDFParserTokenizer::GetNextToken, encountered non ascii char in hex string. probably a corruption. byte value = %d", buffer);
+							result.first = false;
+							break;
+						}
+
+						tokenBuffer.Write(&buffer,1);
 					}
 				}
 				result.second = tokenBuffer.ToString();
@@ -227,7 +240,7 @@ BoolAndString PDFParserTokenizer::GetNextToken()
 				break;
 			case '>': // parse end dictionary marker as a single entity or a hex string end marker
 			{
-				if(!mStream->NotEnded()) // this means a loose end string marker...wierd
+				if(!CanGetNextByte()) // this means a loose end string marker...wierd
 				{
 					result.second = tokenBuffer.ToString();
 					break;
@@ -235,7 +248,7 @@ BoolAndString PDFParserTokenizer::GetNextToken()
 
 				if(GetNextByteForToken(buffer) != PDFHummus::eSuccess)
 				{	
-					result.first = !mStream->NotEnded();
+					result.first = !CanGetNextByte();
 					break;
 				}
 
@@ -258,11 +271,11 @@ BoolAndString PDFParserTokenizer::GetNextToken()
 
 			default: // regular token. read till next breaker or whitespace
 			{
-				while(mStream->NotEnded())
+				while(CanGetNextByte())
 				{
 					if(GetNextByteForToken(buffer) != PDFHummus::eSuccess)
 					{	
-						result.first = !mStream->NotEnded();
+						result.first = !CanGetNextByte();
 						break;
 					}
 					if(IsPDFWhiteSpace(buffer))
@@ -279,7 +292,7 @@ BoolAndString PDFParserTokenizer::GetNextToken()
 				}
 				result.second = tokenBuffer.ToString();
 				
-				if(result.first && mStream->NotEnded() && scStream == result.second)
+				if(result.first && CanGetNextByte() && scStream == result.second)
 				{
 					// k. a bit of a special case here for streams. the reading changes after the keyword "stream", 
 					// essentially forcing the next content to start after either CR, CR-LF or LF. so there might be a little
@@ -288,9 +301,9 @@ BoolAndString PDFParserTokenizer::GetNextToken()
 					// that we should either skip one more "LF" or do nothing (based on what was parsed)
 					
 					// verify that when whitespaces are finished buffer is either CR or LF, and behave accordingly
-					while(mStream->NotEnded()) {
+					while(CanGetNextByte()) {
 						if (!IsPDFWhiteSpace(buffer)) {
-							result.first = !mStream->NotEnded(); // something wrong! not whitespace
+							result.first = !CanGetNextByte(); // something wrong! not whitespace
 							break;
 						}
 
@@ -311,7 +324,7 @@ BoolAndString PDFParserTokenizer::GetNextToken()
 						} // else - some other white space
 
 						if (GetNextByteForToken(buffer) != PDFHummus::eSuccess) {
-							result.first = !mStream->NotEnded(); //can't read but not eof. fail
+							result.first = !CanGetNextByte(); //can't read but not eof. fail
 							break;
 						}
 					}
@@ -332,11 +345,8 @@ void PDFParserTokenizer::SkipTillToken()
 {
 	Byte buffer = 0;
 
-	if(!mStream)
-		return;
-
 	// skip till hitting first non space, or segment end
-	while(mStream->NotEnded())
+	while(CanGetNextByte())
 	{
 		if(GetNextByteForToken(buffer) != PDFHummus::eSuccess)
 			break;
@@ -347,6 +357,10 @@ void PDFParserTokenizer::SkipTillToken()
 			break;
 		}
 	}
+}
+
+bool PDFParserTokenizer::CanGetNextByte() {
+	return !!mStream && (mHasTokenBuffer || mStream->NotEnded());
 }
 
 EStatusCode PDFParserTokenizer::GetNextByteForToken(Byte& outByte)

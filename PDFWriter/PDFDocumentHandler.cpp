@@ -596,7 +596,7 @@ EStatusCode PDFDocumentHandler::CopyInDirectObject(ObjectIDType inSourceObjectID
 	if(!sourceObject)
 	{
 		XrefEntryInput* xrefEntry = mParser->GetXrefEntry(inSourceObjectID);
-		if (xrefEntry->mType == eXrefEntryDelete) {
+		if ((xrefEntry != NULL) && (xrefEntry->mType == eXrefEntryDelete)) {
 			// if the object is deleted, replace with a deleted object
 			mObjectsContext->GetInDirectObjectsRegistry().DeleteObject(inTargetObjectID);
 			return PDFHummus::eSuccess;
@@ -1518,7 +1518,7 @@ std::string PDFDocumentHandler::AsEncodedName(const std::string& inName)
 	OutputStringBufferStream aStringBuilder;
 
 	primitiveWriter.SetStreamForWriting(&aStringBuilder);
-	primitiveWriter.WriteName(inName,eTokenSepratorNone);
+	primitiveWriter.WriteName(inName,eTokenSeparatorNone);
 
 	return aStringBuilder.ToString().substr(1); // return without initial forward slash
 }
@@ -1728,7 +1728,7 @@ EStatusCode PDFDocumentHandler::MergeAndReplaceResourcesTokens(	IByteWriter* inT
 		status = traits.CopyToOutputStream(streamReader,(LongBufferSizeType)(it->ResourceTokenPosition - previousContentPosition));
 		if(status != PDFHummus::eSuccess)
 			break;
-		primitivesWriter.WriteName(inMappedResourcesNames.find(it->ResourceToken)->second,eTokenSepratorNone);
+		primitivesWriter.WriteName(inMappedResourcesNames.find(it->ResourceToken)->second,eTokenSeparatorNone);
 		// note that i'm using SkipBy here. if i want to use SkipTo, i have to user the skipper stream as input stream for the rest
 		// of the reader objects here, as SkipTo relies on information on how many bytes were read
 		skipper.SkipBy(it->ResourceToken.size() + 1); // skip the resource name in the read stream [include +1 for slash]
@@ -2018,9 +2018,28 @@ EStatusCode PDFDocumentHandler::WriteStreamObject(PDFStreamInput* inStream, IObj
 
 	MapIterator<PDFNameToPDFObjectMap> it(streamDictionary->GetIterator());
 	EStatusCode status = PDFHummus::eSuccess;
+	bool readingDecrypted = false;
+	IByteReader* streamReader = NULL;
+
+	/*
+	*	To support unencrypted pdf output, mostly used for debugging, (and maybe i should put a general flag there),
+	*	add ability here to copy by rewriting the streams...when possible.
+	*/
+	if(!mObjectsContext->IsCompressingStreams()) {
+		streamReader = mParser->StartReadingFromStream(inStream);
+		readingDecrypted = streamReader != NULL;
+	}	
+	if(!readingDecrypted) {
+		streamReader = mParser->StartReadingFromStreamForPlainCopying(inStream);
+	}
+
+	if (streamReader == NULL) {
+               status = PDFHummus::eFailure;
+	}
+	
 	while (it.MoveNext() && PDFHummus::eSuccess == status)
 	{
-		if (it.GetKey()->GetValue() != "Length") {
+		if (it.GetKey()->GetValue() != "Length" && (!readingDecrypted || it.GetKey()->GetValue() != "Filter")) {
 			status = newStreamDictionary->WriteKey(it.GetKey()->GetValue());
 			if (PDFHummus::eSuccess == status)
 				status = WriteObjectByType(it.GetValue(), eTokenSeparatorEndLine, inWritePolicy);
@@ -2033,9 +2052,10 @@ EStatusCode PDFDocumentHandler::WriteStreamObject(PDFStreamInput* inStream, IObj
 		return PDFHummus::eFailure;
 	}
 
-	PDFStream* newStream = mObjectsContext->StartUnfilteredPDFStream(newStreamDictionary);
+	PDFStream* newStream = readingDecrypted ?
+		mObjectsContext->StartPDFStream(newStreamDictionary) :
+		mObjectsContext->StartUnfilteredPDFStream(newStreamDictionary);
 	OutputStreamTraits outputTraits(newStream->GetWriteStream());
-	IByteReader* streamReader = mParser->StartReadingFromStreamForPlainCopying(inStream);
 
 	status = outputTraits.CopyToOutputStream(streamReader);
 	if (status != PDFHummus::eSuccess)

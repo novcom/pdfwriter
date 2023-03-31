@@ -1,40 +1,7 @@
-project(PDFWriter)
+set(PDFWRITER_LIB_VERSION ${PDFHummus_VERSION_MAJOR}.${PDFHummus_VERSION_MINOR}.0)
+set(PDFWRITER_SO_VERSION ${PDFHummus_VERSION_MAJOR})
 
-# Soname
-# MAJOR is incremented when symbols are removed or changed in an incompatible way
-# MINOR is incremented when new symbols are added
-set(PDFWRITER_MAJOR 0)
-set(PDFWRITER_MINOR 0)
-set(PDFWRITER_LIB_VERSION ${PDFWRITER_MAJOR}.${PDFWRITER_MINOR}.0)
-set(PDFWRITER_SO_VERSION ${PDFWRITER_MAJOR})
-
-
-include_directories (${LIBAESGM_INCLUDE_DIRS})
-include_directories (${ZLIB_INCLUDE_DIRS})
-
-if(NOT PDFHUMMUS_NO_DCT)
-	include_directories (${LIBJPEG_INCLUDE_DIRS})
-else(NOT PDFHUMMUS_NO_DCT)
-	add_definitions(-DPDFHUMMUS_NO_DCT=1)
-endif(NOT PDFHUMMUS_NO_DCT)
-
-if(NOT PDFHUMMUS_NO_TIFF)
-	include_directories (${LIBTIFF_INCLUDE_DIRS})
-else(NOT PDFHUMMUS_NO_TIFF)
-	add_definitions(-DPDFHUMMUS_NO_TIFF=1)
-endif(NOT PDFHUMMUS_NO_TIFF)
-
-include_directories (${FREETYPE_INCLUDE_DIRS})
-
-if(NOT PDFHUMMUS_NO_PNG)
-	include_directories (${LIBPNG_INCLUDE_DIRS})
-else(NOT PDFHUMMUS_NO_PNG)
-	add_definitions(-DPDFHUMMUS_NO_PNG=1)
-endif(NOT PDFHUMMUS_NO_PNG)
-
-
-
-add_library (PDFWriter_OBJLIB OBJECT
+add_library (PDFWriter
 #sources
 AbstractContentContext.cpp
 AbstractWrittenFont.cpp
@@ -80,7 +47,9 @@ InputDCTDecodeStream.cpp
 InputFile.cpp
 InputFileStream.cpp
 InputFlateDecodeStream.cpp
+InputLZWDecodeStream.cpp
 InputLimitedStream.cpp
+InputOffsetStream.cpp
 InputRC4XcodeStream.cpp
 InputPFBDecodeStream.cpp
 InputPredictorPNGOptimumStream.cpp
@@ -206,6 +175,7 @@ CIDFontWriter.h
 CMYKRGBColor.h
 ContainerIterator.h
 DecryptionHelper.h
+Deletable.h
 DescendentFontWriter.h
 DictionaryContext.h
 DictOperand.h
@@ -233,6 +203,7 @@ IByteReaderWithPosition.h
 IByteWriter.h
 IByteWriterWithPosition.h
 IContentContextListener.h
+IDeletable.h
 IDescendentFontWriter.h
 IDocumentContextExtender.h
 IFontDescriptorHelper.h
@@ -251,7 +222,9 @@ InputDCTDecodeStream.h
 InputFile.h
 InputFileStream.h
 InputFlateDecodeStream.h
+InputLZWDecodeStream.h
 InputLimitedStream.h
+InputOffsetStream.h
 InputRC4XcodeStream.h
 InputPFBDecodeStream.h
 InputPredictorPNGOptimumStream.h
@@ -374,18 +347,76 @@ XObjectContentContext.h
 )
 
 
-set(PDFWriter_OBJECTS $<TARGET_OBJECTS:PDFWriter_OBJLIB>)
-set(PDFWriter_OBJECTS $<TARGET_OBJECTS:PDFWriter_OBJLIB> PARENT_SCOPE)
-if(IS_XCODE)
-    add_library(PDFWriter ${PDFWriter_OBJECTS} XObjectContentContext.cpp)
-else(IS_XCODE)
-    add_library(PDFWriter ${PDFWriter_OBJECTS})
-endif(IS_XCODE)
+add_library(PDFHummus::PDFWriter ALIAS PDFWriter)
 
-target_link_libraries(PDFWriter ${LIBAESGM_LDFLAGS} ${LIBJPEG_LDFLAGS} ${ZLIB_LDFLAGS} ${LIBTIFF_LDFLAGS} ${FREETYPE_LDFLAGS} ${LIBPNG_LDFLAGS})
+# zlib
+if(USING_UNBUNDLED_ZLIB)
+    target_link_libraries(PDFWriter ZLIB::ZLIB)
+else(USING_UNBUNDLED_ZLIB)
+    target_link_libraries(PDFWriter PDFHummus::Zlib)
+endif(USING_UNBUNDLED_ZLIB)
+
+# freetype
+if(USING_UNBUNDLED_Freetype)
+    target_link_libraries(PDFWriter Freetype::Freetype)
+else(USING_UNBUNDLED_Freetype)
+    target_link_libraries(PDFWriter PDFHummus::FreeType)
+endif(USING_UNBUNDLED_Freetype)
+
+# libaesgm
+if(USING_UNBUNDLED_aesgm)
+    target_link_libraries(PDFWriter Aesgm::Aesgm)
+else(USING_UNBUNDLED_aesgm)
+    target_link_libraries(PDFWriter PDFHummus::LibAesgm)
+endif(USING_UNBUNDLED_aesgm)
+
+# libjpeg
+if(PDFHUMMUS_NO_DCT)
+    target_compile_definitions(PDFWriter PUBLIC PDFHUMMUS_NO_DCT=1)    
+else(PDFHUMMUS_NO_DCT)
+    if(USING_UNBUNDLED_JPEG)
+        target_link_libraries(PDFWriter JPEG::JPEG)
+    else(USING_UNBUNDLED_JPEG)
+        target_link_libraries(PDFWriter PDFHummus::LibJpeg)
+    endif(USING_UNBUNDLED_JPEG)
+endif(PDFHUMMUS_NO_DCT)
+
+# libtiff
+if(PDFHUMMUS_NO_TIFF)
+    target_compile_definitions(PDFWriter PUBLIC PDFHUMMUS_NO_TIFF=1)    
+else(PDFHUMMUS_NO_TIFF)
+    if(USING_UNBUNDLED_TIFF)
+        target_link_libraries(PDFWriter TIFF::TIFF)
+        target_compile_definitions(PDFWriter PUBLIC _INCLUDE_TIFF_HEADER)
+    else(USING_UNBUNDLED_TIFF)
+        target_link_libraries(PDFWriter PDFHummus::LibTiff)
+    endif(USING_UNBUNDLED_TIFF)
+endif(PDFHUMMUS_NO_TIFF)
+
+# libpng
+if(PDFHUMMUS_NO_PNG)
+    target_compile_definitions(PDFWriter PUBLIC PDFHUMMUS_NO_PNG=1)    
+else(PDFHUMMUS_NO_PNG)
+    if(USING_UNBUNDLED_PNG)
+        target_link_libraries(PDFWriter PNG::PNG)
+    else(USING_UNBUNDLED_PNG)
+        target_link_libraries(PDFWriter PDFHummus::LibPng)
+    endif(USING_UNBUNDLED_PNG)
+endif(PDFHUMMUS_NO_PNG)
+
+target_include_directories(PDFWriter
+    INTERFACE
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>
+    $<INSTALL_INTERFACE:include/PDFWriter> 
+)  
+
 set_target_properties(PDFWriter PROPERTIES VERSION ${PDFWRITER_LIB_VERSION} SOVERSION ${PDFWRITER_SO_VERSION})
+if(WIN32 AND BUILD_SHARED_LIBS)
+    set_target_properties(PDFWriter PROPERTIES  WINDOWS_EXPORT_ALL_SYMBOLS ON)
+endif()
 
 install(TARGETS PDFWriter
+    EXPORT PDFHummusTargets
     RUNTIME DESTINATION bin COMPONENT libraries
     ARCHIVE DESTINATION lib${LIB_SUFFIX} COMPONENT libraries
     LIBRARY DESTINATION lib${LIB_SUFFIX} COMPONENT libraries
@@ -393,25 +424,10 @@ install(TARGETS PDFWriter
 
 install(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
     DESTINATION include
+    COMPONENT libraries
     FILES_MATCHING
     PATTERN "*.h"
 )
-
-if(CREATE_PDFWRITER_ALL)
-    set(ALL_OBJECTS ${PDFWriter_OBJECTS} ${FreeType_OBJECTS} ${LibAesgm_OBJECTS} ${LibJpeg_OBJECTS} ${LibTiff_OBJECTS} ${Zlib_OBJECTS} ${LibPng_OBJECTS})
-
-    if(IS_XCODE)
-        add_library(PDFWriterAll ${ALL_OBJECTS} XObjectContentContext.cpp)
-    else(IS_XCODE)
-        add_library(PDFWriterAll ${ALL_OBJECTS})
-    endif(IS_XCODE)
-    
-    install(TARGETS PDFWriterAll
-        RUNTIME DESTINATION bin COMPONENT libraries
-        ARCHIVE DESTINATION lib${LIB_SUFFIX} COMPONENT libraries
-        LIBRARY DESTINATION lib${LIB_SUFFIX} COMPONENT libraries
-    )
-endif(CREATE_PDFWRITER_ALL)
 
 # groups definitions
 source_group("Document Context Level" FILES
@@ -553,8 +569,12 @@ InputFileStream.cpp
 InputFileStream.h
 InputFlateDecodeStream.cpp
 InputFlateDecodeStream.h
+InputLZWDecodeStream.cpp
+InputLZWDecodeStream.h
 InputLimitedStream.cpp
 InputLimitedStream.h
+InputOffsetStream.cpp
+InputOffsetStream.h
 InputRC4XcodeStream.cpp
 InputRC4XcodeStream.h
 InputStreamSkipperStream.cpp
@@ -636,6 +656,8 @@ UppercaseSequance.h
 )
 
 source_group("PDF Embedding\\Parsed Objects" FILES
+Deletable.h
+IDeletable.h
 PDFArray.cpp
 PDFArray.h
 PDFBoolean.cpp

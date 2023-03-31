@@ -1,13 +1,4 @@
-cmake_minimum_required (VERSION 2.6) 
-project(LibPng)
-
-set(LIBPNG_INCLUDE_DIRS ${LibPng_SOURCE_DIR} PARENT_SCOPE)
-set(LIBPNG_LDFLAGS LibPng PARENT_SCOPE)
-
-include_directories (${ZLIB_INCLUDE_DIRS})
-
-
-add_library (LibPng_OBJLIB OBJECT 
+add_library(LibPng
 #sources
 png.c
 pngerror.c
@@ -35,25 +26,40 @@ pngpriv.h
 pngstruct.h
 )
 
-set(LibPng_OBJECTS $<TARGET_OBJECTS:LibPng_OBJLIB>)
-set(LibPng_OBJECTS $<TARGET_OBJECTS:LibPng_OBJLIB> PARENT_SCOPE)
+add_library(PDFHummus::LibPng ALIAS LibPng)
 
-if(IS_XCODE)
-    add_library(LibPng ${LibPng_OBJECTS} pngwutil.c)
-else(IS_XCODE)
-    add_library(LibPng ${LibPng_OBJECTS})
-endif(IS_XCODE)
+target_include_directories(LibPng
+    INTERFACE
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>
+    $<INSTALL_INTERFACE:include/LibPng> 
+)
 
+# https://github.com/julienr/libpng-android/issues/6
+if (${CMAKE_HOST_SYSTEM_PROCESSOR} STREQUAL "aarch64" OR ${CMAKE_HOST_SYSTEM_PROCESSOR} STREQUAL "arm64")
+    target_compile_definitions(LibPng PRIVATE 
+        PNG_ARM_NEON_OPT=0
+    )
+endif()
 
-target_link_libraries(LibPng ${ZLIB_LDFLAGS})
+if(WIN32 AND BUILD_SHARED_LIBS)
+    target_compile_definitions(LibPng PUBLIC PNG_USE_DLL)
+endif()
+
+if(USING_UNBUNDLED_ZLIB)
+    target_link_libraries(LibPng ZLIB::ZLIB)
+else(USING_UNBUNDLED_ZLIB)
+    target_link_libraries(LibPng PDFHummus::Zlib)
+endif(USING_UNBUNDLED_ZLIB)
 
 install(TARGETS LibPng
+    EXPORT PDFHummusTargets
     RUNTIME DESTINATION bin COMPONENT dependencies
     ARCHIVE DESTINATION lib${LIB_SUFFIX} COMPONENT dependencies
     LIBRARY DESTINATION lib${LIB_SUFFIX} COMPONENT dependencies
 )
 install(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
     DESTINATION include
+    COMPONENT dependencies
     FILES_MATCHING
     PATTERN "*.h"
 )
